@@ -107,77 +107,121 @@ function areGenotypesEqual(c1: { a1: string; a2: string }, c2: { a1: string; a2:
 }
 
 // Parse text block line by line into ParsedSNP list
+// Helper to split a line by delimiter and strip quotes/whitespace
+function splitLineFields(line: string, delimiter: string): string[] {
+  if (delimiter === ',') {
+    const raw = line.split(',');
+    return raw.map((f) => f.trim().replace(/^["']|["']$/g, ''));
+  }
+  if (delimiter === '\t') {
+    const raw = line.split(/\t+/);
+    return raw.map((f) => f.trim().replace(/^["']|["']$/g, ''));
+  }
+  if (delimiter === ';') {
+    const raw = line.split(';');
+    return raw.map((f) => f.trim().replace(/^["']|["']$/g, ''));
+  }
+  const raw = line.split(/\s+/);
+  return raw.map((f) => f.trim().replace(/^["']|["']$/g, ''));
+}
+
+// Auto-detect delimiter from non-comment lines
+function detectDelimiter(sampleLines: string[]): string {
+  let commaScore = 0;
+  let tabScore = 0;
+  let semiScore = 0;
+
+  for (let i = 0; i < Math.min(30, sampleLines.length); i++) {
+    const l = sampleLines[i].trim();
+    if (!l || l.startsWith('#') || l.startsWith('[') || l.startsWith('//')) continue;
+    if (l.includes(',')) commaScore += (l.match(/,/g) || []).length;
+    if (l.includes('\t')) tabScore += (l.match(/\t/g) || []).length;
+    if (l.includes(';')) semiScore += (l.match(/;/g) || []).length;
+  }
+
+  if (commaScore > tabScore && commaScore > semiScore) return ',';
+  if (semiScore > tabScore && semiScore > commaScore) return ';';
+  return '\t'; // Default to tab / whitespace
+}
+
+// Parse text block line by line into ParsedSNP list
 function parseRawDnaText(
   text: string,
   onProgress?: (linesProcessed: number) => void
 ): ParsedSNP[] {
-  const lines = text.split(/\r?\n/);
+  // Strip UTF-8 BOM if present
+  const cleanText = text.replace(/^\uFEFF/, '');
+  const lines = cleanText.split(/\r?\n/);
   const snps: ParsedSNP[] = [];
 
-  let isCsv = false;
-  let rsidCol = 0;
-  let chrCol = 1;
-  let posCol = 2;
-  let allele1Col = 3;
-  let allele2Col = 4;
+  const delimiter = detectDelimiter(lines);
+
+  let rsidCol = -1;
+  let chrCol = -1;
+  let posCol = -1;
+  let allele1Col = -1;
+  let allele2Col = -1;
   let isSingleResultCol = false;
   let headerFound = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line || line.startsWith('#')) continue;
+    if (!line || line.startsWith('#') || line.startsWith('[') || line.startsWith('//')) continue;
 
     // Detect format headers
     if (!headerFound) {
       const lower = line.toLowerCase();
-      if (lower.includes('rsid') || lower.includes('chromosome') || lower.includes('position')) {
-        headerFound = true;
-        if (line.includes(',')) {
-          isCsv = true;
-          const cols = line.split(',').map((c) => c.trim().replace(/["']/g, '').toLowerCase());
-          rsidCol = cols.indexOf('rsid');
-          chrCol = cols.indexOf('chromosome');
-          posCol = cols.indexOf('position');
-          const resultIdx = cols.indexOf('result');
-          if (resultIdx !== -1) {
-            isSingleResultCol = true;
-            allele1Col = resultIdx;
-          } else {
-            allele1Col = cols.indexOf('allele1');
-            allele2Col = cols.indexOf('allele2');
-          }
+      if (
+        lower.includes('rsid') ||
+        lower.includes('chromosome') ||
+        lower.includes('position') ||
+        lower.includes('snp') ||
+        lower.includes('result') ||
+        lower.includes('genotype')
+      ) {
+        const cols = splitLineFields(line, delimiter).map((c) => c.toLowerCase());
+
+        rsidCol = cols.findIndex((c) => c.includes('rsid') || c.includes('snp') || c.includes('id') || c === 'name');
+        chrCol = cols.findIndex((c) => c.includes('chromosome') || c.includes('chr'));
+        posCol = cols.findIndex((c) => c.includes('position') || c.includes('pos') || c.includes('coord'));
+
+        const resultIdx = cols.findIndex((c) => c.includes('result') || c.includes('genotype') || c === 'call' || c === 'gt');
+        if (resultIdx !== -1) {
+          isSingleResultCol = true;
+          allele1Col = resultIdx;
         } else {
-          isCsv = false;
-          const cols = line.split(/\t+/).map((c) => c.trim().toLowerCase());
-          rsidCol = cols.indexOf('rsid');
-          chrCol = cols.indexOf('chromosome');
-          posCol = cols.indexOf('position');
-          const genoIdx = cols.indexOf('genotype');
-          if (genoIdx !== -1) {
-            isSingleResultCol = true;
-            allele1Col = genoIdx;
-          } else {
-            allele1Col = cols.indexOf('allele1');
-            allele2Col = cols.indexOf('allele2');
-          }
+          allele1Col = cols.findIndex((c) => c.includes('allele1') || c.includes('allele 1') || c === 'a1');
+          allele2Col = cols.findIndex((c) => c.includes('allele2') || c.includes('allele 2') || c === 'a2');
         }
+
+        // Fallbacks for standard indexes if not matching exact words
+        if (rsidCol === -1) rsidCol = 0;
+        if (chrCol === -1) chrCol = 1;
+        if (posCol === -1) posCol = 2;
+        if (allele1Col === -1) allele1Col = 3;
+        if (allele2Col === -1) allele2Col = 4;
+
+        headerFound = true;
         continue;
       }
     }
 
     // Parse fields
-    const fields = isCsv
-      ? line.split(',').map((f) => f.trim().replace(/["']/g, ''))
-      : line.split(/\t+/).map((f) => f.trim());
-
+    const fields = splitLineFields(line, delimiter);
     if (fields.length < 3) continue;
 
-    const rsid = fields[rsidCol >= 0 ? rsidCol : 0] || 'nocall';
-    const rawChr = fields[chrCol >= 0 ? chrCol : 1] || '';
-    const posStr = fields[posCol >= 0 ? posCol : 2] || '0';
+    const rIdx = rsidCol >= 0 ? rsidCol : 0;
+    const cIdx = chrCol >= 0 ? chrCol : 1;
+    const pIdx = posCol >= 0 ? posCol : 2;
+    const a1Idx = allele1Col >= 0 ? allele1Col : 3;
+    const a2Idx = allele2Col >= 0 ? allele2Col : 4;
+
+    const rsid = fields[rIdx] || 'nocall';
+    const rawChr = fields[cIdx] || '';
+    const posStr = fields[pIdx] || '0';
     const pos = parseInt(posStr, 10);
 
-    if (isNaN(pos) || pos <= 0) continue; // Skip residual headers or bad positions
+    if (isNaN(pos) || pos <= 0) continue; // Skip headers or invalid position data
 
     const { chr } = normalizeChromosome(rawChr);
 
@@ -185,15 +229,15 @@ function parseRawDnaText(
     let a2 = '0';
     let isValid = false;
 
-    if (isSingleResultCol) {
-      const rawGeno = fields[allele1Col >= 0 ? allele1Col : 3] || '';
+    if (isSingleResultCol || a2Idx >= fields.length || a1Idx === a2Idx) {
+      const rawGeno = fields[a1Idx] || '';
       const norm = normalizeAlleles(rawGeno);
       a1 = norm.a1;
       a2 = norm.a2;
       isValid = norm.isValid;
     } else {
-      const rawA1 = fields[allele1Col >= 0 ? allele1Col : 3] || '';
-      const rawA2 = fields[allele2Col >= 0 ? allele2Col : 4] || '';
+      const rawA1 = fields[a1Idx] || '';
+      const rawA2 = fields[a2Idx] || '';
       const norm = normalizeAlleles(rawA1, rawA2);
       a1 = norm.a1;
       a2 = norm.a2;
