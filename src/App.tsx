@@ -26,6 +26,8 @@ import type {
 export const App: React.FC = () => {
   const [kit1Metadata, setKit1Metadata] = useState<KitFileMetadata | null>(null);
   const [kit2Metadata, setKit2Metadata] = useState<KitFileMetadata | null>(null);
+  const [kit1File, setKit1File] = useState<File | null>(null);
+  const [kit2File, setKit2File] = useState<File | null>(null);
   const [kit1Text, setKit1Text] = useState<string>('');
   const [kit2Text, setKit2Text] = useState<string>('');
 
@@ -88,15 +90,17 @@ export const App: React.FC = () => {
     return 'unknown';
   };
 
-  // Handle user uploading/selecting a file
+  // Handle user uploading/selecting a file (fast 4KB slice header inspection)
   const handleFileSelected = (kitId: 'kit1' | 'kit2', file: File) => {
     setErrorMessage(null);
     setResult(null);
 
+    // Read only the first 4KB of the file for instant header format detection
+    const sampleSlice = file.slice(0, 4000);
     const reader = new FileReader();
     reader.onload = (e) => {
-      const content = e.target?.result as string;
-      const vendor = detectVendorFormat(content);
+      const sampleText = e.target?.result as string;
+      const vendor = detectVendorFormat(sampleText);
 
       const meta: KitFileMetadata = {
         id: kitId,
@@ -108,13 +112,15 @@ export const App: React.FC = () => {
 
       if (kitId === 'kit1') {
         setKit1Metadata(meta);
-        setKit1Text(content);
+        setKit1File(file);
+        setKit1Text(''); // Clear memory string
       } else {
         setKit2Metadata(meta);
-        setKit2Text(content);
+        setKit2File(file);
+        setKit2Text(''); // Clear memory string
       }
     };
-    reader.readAsText(file);
+    reader.readAsText(sampleSlice);
   };
 
   // Clear specific kit file
@@ -122,9 +128,11 @@ export const App: React.FC = () => {
     setResult(null);
     if (kitId === 'kit1') {
       setKit1Metadata(null);
+      setKit1File(null);
       setKit1Text('');
     } else {
       setKit2Metadata(null);
+      setKit2File(null);
       setKit2Text('');
     }
   };
@@ -144,6 +152,7 @@ export const App: React.FC = () => {
       vendor: 'ancestry',
     });
     setKit1Text(sample1);
+    setKit1File(null);
 
     setKit2Metadata({
       id: 'kit2',
@@ -152,11 +161,12 @@ export const App: React.FC = () => {
       vendor: '23andme',
     });
     setKit2Text(sample2);
+    setKit2File(null);
   };
 
-  // Trigger Worker Merge
-  const handleStartMerge = () => {
-    if (!kit1Text || !kit2Text || !workerRef.current) return;
+  // Trigger Worker Merge with Zero-Copy Transferable ArrayBuffers
+  const handleStartMerge = async () => {
+    if ((!kit1File && !kit1Text) || (!kit2File && !kit2Text) || !workerRef.current) return;
 
     setErrorMessage(null);
     setResult(null);
@@ -166,20 +176,38 @@ export const App: React.FC = () => {
       stage: 'parsing_kit1',
       stageNumber: 1,
       percentage: 5,
-      detailMessage: 'Initializing SuperKit Web Worker...',
+      detailMessage: 'Initializing zero-copy SuperKit Web Worker...',
     });
 
-    workerRef.current.postMessage({
-      kit1Text,
-      kit2Text,
-      options,
-    });
+    try {
+      if (kit1File && kit2File) {
+        // Zero-copy Transferable ArrayBuffers for actual file uploads
+        const kit1Buffer = await kit1File.arrayBuffer();
+        const kit2Buffer = await kit2File.arrayBuffer();
+
+        workerRef.current.postMessage(
+          { kit1Buffer, kit2Buffer, options },
+          [kit1Buffer, kit2Buffer] // Transfer ownership to worker thread!
+        );
+      } else {
+        // Fallback for sample mock text strings
+        workerRef.current.postMessage({
+          kit1Text,
+          kit2Text,
+          options,
+        });
+      }
+    } catch (err: unknown) {
+      const errStr = err instanceof Error ? err.message : String(err);
+      setErrorMessage(`Failed to read input files: ${errStr}`);
+      setIsProcessing(false);
+    }
   };
 
   // Trigger Instant SuperKit Download
   const handleDownload = () => {
     if (!result) return;
-    const blob = new Blob([result.outputContent], { type: 'text/plain;charset=utf-8' });
+    const blob = result.outputBlob || new Blob([result.outputContent || ''], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -190,7 +218,7 @@ export const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const canMerge = Boolean(kit1Text && kit2Text);
+  const canMerge = Boolean((kit1File || kit1Text) && (kit2File || kit2Text));
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 py-8 px-4 sm:px-6 lg:px-8 font-sans">

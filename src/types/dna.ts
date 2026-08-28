@@ -57,7 +57,8 @@ export interface WorkerSuccessMessage {
   uniqueKit2Count: number;
   totalSuperKitCount: number;
   outputFormat: 'ancestry' | '23andMe';
-  outputContent: string;
+  outputBlob?: Blob;
+  outputContent?: string;
   previewRows: CanonicalSNP[];
   chromosomeDistribution: ChromosomeCount[];
   executionTimeMs: number;
