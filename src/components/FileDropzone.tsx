@@ -81,7 +81,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
-        accept=".txt,.csv,.tsv,.raw"
+        accept=".txt,.csv,.tsv,.raw,.zip,.gz"
         className="hidden"
         disabled={disabled}
       />

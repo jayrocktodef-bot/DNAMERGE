@@ -1,0 +1,17 @@
+{
+  "name": "DNA SuperKit Builder",
+  "short_name": "SuperKit",
+  "description": "Merge autosomal raw DNA microarray files locally with client-side Web Workers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "https://writteninthegenome.blog/wp-content/uploads/2026/03/cropped-1000055020-e1773637919503-150x150.webp",
+      "sizes": "150x150",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}

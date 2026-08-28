@@ -217,6 +217,32 @@ function parseRawDnaText(
   return snps;
 }
 
+import { unzipSync, gunzipSync } from 'fflate';
+
+function unpackBufferIfNeeded(buffer: ArrayBuffer, decoder: TextDecoder): string {
+  const bytes = new Uint8Array(buffer);
+
+  // Magic bytes: ZIP starts with PK\x03\x04 (0x50 0x4B 0x03 0x04)
+  if (bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+    const unzipped = unzipSync(bytes);
+    const filename = Object.keys(unzipped).find(
+      (f) => !f.startsWith('__MACOSX') && (f.endsWith('.txt') || f.endsWith('.csv') || f.endsWith('.tsv') || !f.includes('.'))
+    ) || Object.keys(unzipped)[0];
+
+    if (filename && unzipped[filename]) {
+      return decoder.decode(unzipped[filename]);
+    }
+  }
+
+  // Magic bytes: GZIP starts with 0x1F 0x8B
+  if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const decompressed = gunzipSync(bytes);
+    return decoder.decode(decompressed);
+  }
+
+  return decoder.decode(buffer);
+}
+
 // Main Web Worker message handler
 ctx.onmessage = (event: MessageEvent) => {
   const startTime = performance.now();
@@ -231,9 +257,9 @@ ctx.onmessage = (event: MessageEvent) => {
   try {
     const textDecoder = new TextDecoder('utf-8');
 
-    // Decode buffers or use string inputs
-    const k1Content = kit1Buffer ? textDecoder.decode(kit1Buffer) : kit1Text || '';
-    const k2Content = kit2Buffer ? textDecoder.decode(kit2Buffer) : kit2Text || '';
+    // Decode or unpack compressed buffers (.zip/.gz) automatically
+    const k1Content = kit1Buffer ? unpackBufferIfNeeded(kit1Buffer, textDecoder) : kit1Text || '';
+    const k2Content = kit2Buffer ? unpackBufferIfNeeded(kit2Buffer, textDecoder) : kit2Text || '';
 
     // -------------------------------------------------------------
     // STAGE 1: Parsing Kit 1
