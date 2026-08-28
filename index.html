@@ -1,14 +1,118 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DNA SuperKit Builder | High-Density Autosomal DNA Merging Tool</title>
-    <meta name="description" content="Merge two raw autosomal DNA microarray files (AncestryDNA, 23andMe, MyHeritage, FTDNA) into a deduplicated, high-density SuperKit file in GRCh37 (hg19) coordinates using 100% client-side Web Workers." />
-    <meta name="keywords" content="DNA SuperKit, AncestryDNA, 23andMe, MyHeritage, FTDNA, raw DNA merge, autosomal DNA, GRCh37, hg19, genetics, genealogy" />
+    <link rel="icon" type="image/webp" href="/blog-logo.webp" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    
+    <!-- Primary Meta Tags -->
+    <title>DNA SuperKit Builder – High-Density Autosomal Raw DNA Merger | Written in the Genome</title>
+    <meta name="title" content="DNA SuperKit Builder – High-Density Autosomal Raw DNA Merger | Written in the Genome" />
+    <meta name="description" content="Merge AncestryDNA, 23andMe, MyHeritage, and FTDNA raw autosomal DNA files into a single, deduplicated, high-density SuperKit file (GRCh37/hg19). 100% client-side Web Worker processing for ultimate privacy." />
+    <meta name="keywords" content="DNA merger, raw DNA superkit, AncestryDNA merge, 23andMe merge, MyHeritage DNA, FTDNA raw data, autosomal DNA deduplication, GRCh37 hg19, Written in the Genome, Genotype Scout" />
+    <meta name="author" content="Written in the Genome" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://merge.writteninthegenome.blog/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://merge.writteninthegenome.blog/" />
+    <meta property="og:title" content="DNA SuperKit Builder – High-Density Autosomal Raw DNA Merger" />
+    <meta property="og:description" content="Merge AncestryDNA, 23andMe, MyHeritage, and FTDNA raw autosomal DNA microarray files in 100% client-side Web Workers. Zero server upload." />
+    <meta property="og:image" content="https://merge.writteninthegenome.blog/blog-logo.webp" />
+    <meta property="og:site_name" content="Written in the Genome" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://merge.writteninthegenome.blog/" />
+    <meta name="twitter:title" content="DNA SuperKit Builder – High-Density Autosomal Raw DNA Merger" />
+    <meta name="twitter:description" content="Merge AncestryDNA, 23andMe, MyHeritage, and FTDNA raw data locally. 100% Client-Side & Private." />
+    <meta name="twitter:image" content="https://merge.writteninthegenome.blog/blog-logo.webp" />
+
+    <!-- Theme Color & Mobile -->
+    <meta name="theme-color" content="#f59e0b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Preconnect to Brand Domains -->
+    <link rel="preconnect" href="https://writteninthegenome.blog" />
+    <link rel="preconnect" href="https://scout.writteninthegenome.blog" />
+
+    <!-- Schema.org JSON-LD Structured Data for Search Engine Indexing -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "@id": "https://merge.writteninthegenome.blog/#app",
+          "name": "DNA SuperKit Builder",
+          "alternateName": "DNA Merger App",
+          "url": "https://merge.writteninthegenome.blog/",
+          "applicationCategory": "UtilitiesApplication",
+          "applicationSubCategory": "GeneticDataTool",
+          "operatingSystem": "Any (Web Browser)",
+          "browserRequirements": "Requires JavaScript. Utilizes Web Workers for 100% client-side genetic data processing.",
+          "softwareVersion": "1.0.0",
+          "isAccessibleForFree": true,
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "featureList": [
+            "Merge AncestryDNA, 23andMe, MyHeritage, and FTDNA raw files",
+            "GRCh37 (hg19) coordinate alignment & chromosome normalization",
+            "Deduplication and primary authority conflict resolution of SNPs",
+            "Reverse-strand complement matching for non-ambiguous SNPs",
+            "100% Client-side Web Worker processing (zero server uploads)",
+            "Download merged SuperKit in AncestryDNA (5-col) or 23andMe (4-col) schema"
+          ],
+          "publisher": {
+            "@id": "https://writteninthegenome.blog/#organization"
+          },
+          "isPartOf": {
+            "@id": "https://writteninthegenome.blog/#website"
+          }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://writteninthegenome.blog/#organization",
+          "name": "Written in the Genome",
+          "url": "https://writteninthegenome.blog",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://merge.writteninthegenome.blog/blog-logo.webp"
+          },
+          "sameAs": [
+            "https://writteninthegenome.blog",
+            "https://scout.writteninthegenome.blog"
+          ]
+        },
+        {
+          "@type": "BreadcrumbList",
+          "@id": "https://merge.writteninthegenome.blog/#breadcrumb",
+          "itemListElement": [
+            {
+              "@type": "ListItem",
+              "position": 1,
+              "name": "Written in the Genome",
+              "item": "https://writteninthegenome.blog"
+            },
+            {
+              "@type": "ListItem",
+              "position": 2,
+              "name": "DNA SuperKit Builder",
+              "item": "https://merge.writteninthegenome.blog/"
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 min-h-screen">
+  <body class="bg-black text-zinc-100 antialiased selection:bg-amber-500 selection:text-slate-950">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

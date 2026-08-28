@@ -1,0 +1,7 @@
+# User-Agent Rules for Search Engines & Crawlers
+User-agent: *
+Allow: /
+Disallow: /dist/
+
+# Sitemap Location
+Sitemap: https://merge.writteninthegenome.blog/sitemap.xml
