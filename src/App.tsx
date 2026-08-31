@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Header } from './components/Header';
 import { FileDropzone } from './components/FileDropzone';
 import { ConfigurationPanel } from './components/ConfigurationPanel';
@@ -315,6 +316,7 @@ export const App: React.FC = () => {
         {/* Footer */}
         <Footer />
       </div>
+      <Analytics />
     </div>
   );
 };
