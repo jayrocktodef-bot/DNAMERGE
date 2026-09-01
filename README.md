@@ -18,11 +18,13 @@ All file parsing, strand normalization, coordinate mapping, deduplication, and s
 
 ---
 
-## 🚀 Live Links & Subdomains
+## 🚀 Written In The Genome Suite
 
-- **DNA SuperKit App**: [https://merge.writteninthegenome.blog](https://merge.writteninthegenome.blog)
-- **Written in the Genome Blog**: [https://writteninthegenome.blog](https://writteninthegenome.blog)
-- **Genotype Scout DNA Tool**: [https://scout.writteninthegenome.blog](https://scout.writteninthegenome.blog)
+- 🧬 **Haplotype Scout**: [https://haplotype.writteninthegenome.blog](https://haplotype.writteninthegenome.blog)
+- 🗺️ **Genotype Scout**: [https://genotype.writteninthegenome.blog](https://genotype.writteninthegenome.blog)
+- ⚡ **DNA SuperKit Builder**: [https://merge.writteninthegenome.blog](https://merge.writteninthegenome.blog)
+- 🏛️ **Family Archive**: [https://familyarchive.writteninthegenome.blog](https://familyarchive.writteninthegenome.blog)
+- 📖 **Official Research Blog**: [https://writteninthegenome.blog](https://writteninthegenome.blog)
 
 ---
 
