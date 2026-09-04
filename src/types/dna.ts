@@ -46,6 +46,8 @@ export interface ChromosomeCount {
   count: number;
 }
 
+import type { HaplogroupSummary, HaplogroupComparison } from './haplogroup';
+
 export interface WorkerSuccessMessage {
   type: 'SUCCESS';
   totalKit1Count: number;
@@ -62,6 +64,10 @@ export interface WorkerSuccessMessage {
   previewRows: CanonicalSNP[];
   chromosomeDistribution: ChromosomeCount[];
   executionTimeMs: number;
+  kit1Haplogroups?: HaplogroupSummary;
+  kit2Haplogroups?: HaplogroupSummary;
+  superKitHaplogroups?: HaplogroupSummary;
+  haplogroupComparison?: HaplogroupComparison;
 }
 
 export interface WorkerErrorMessage {

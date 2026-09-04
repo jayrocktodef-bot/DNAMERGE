@@ -11,14 +11,17 @@ import {
   Sparkles,
   RotateCcw,
   Film,
+  Compass,
 } from 'lucide-react';
 import type { WorkerSuccessMessage } from '../types/dna';
+import { HaplogroupDashboard } from './HaplogroupDashboard';
 
 interface SummaryDashboardProps {
   result: WorkerSuccessMessage;
   onDownload: () => void;
   onOpenPreview: () => void;
   onOpenVideo: () => void;
+  onOpenHaplogroups: () => void;
   onReset: () => void;
 }
 
@@ -27,6 +30,7 @@ export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({
   onDownload,
   onOpenPreview,
   onOpenVideo,
+  onOpenHaplogroups,
   onReset,
 }) => {
   const statCards = [
@@ -144,6 +148,15 @@ export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({
             </button>
 
             <button
+              onClick={onOpenHaplogroups}
+              className="min-h-[48px] px-4 py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 hover:text-amber-200 font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 touch-manipulation active:scale-95"
+              title="Inspect Haplogroup Resolution"
+            >
+              <Compass className="w-4 h-4 text-amber-400" />
+              <span>Haplogroups</span>
+            </button>
+
+            <button
               onClick={onOpenPreview}
               className="min-h-[48px] px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 hover:text-white font-medium text-xs sm:text-sm transition-all flex items-center justify-center gap-2 touch-manipulation active:scale-95"
             >
@@ -189,6 +202,17 @@ export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({
           );
         })}
       </div>
+
+      {/* Haplogroup Resolution & Lineage Matrix */}
+      {result.superKitHaplogroups && (
+        <HaplogroupDashboard
+          kit1Haplogroups={result.kit1Haplogroups}
+          kit2Haplogroups={result.kit2Haplogroups}
+          superKitHaplogroups={result.superKitHaplogroups}
+          haplogroupComparison={result.haplogroupComparison}
+          onOpenModal={onOpenHaplogroups}
+        />
+      )}
     </div>
   );
 };

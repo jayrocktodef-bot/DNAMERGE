@@ -145,5 +145,27 @@
   <body class="bg-black text-zinc-100 antialiased selection:bg-amber-500 selection:text-slate-950">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Jetpack Stats Integration (Written In The Genome Blog ID: 182120512) -->
+    <script id="jetpack-stats-js-before">
+      window._stq = window._stq || [];
+      window._stq.push([
+        "view",
+        {
+          v: "ext",
+          blog: "182120512",
+          post: "0",
+          tz: "-4",
+          srv: "merge.writteninthegenome.blog",
+          hp: "atomic",
+          ac: "2",
+          amp: "0",
+          sub: "superkit-builder"
+        }
+      ]);
+      window._stq.push(["extra", { host: "merge.writteninthegenome.blog" }]);
+    </script>
+    <script defer fetchpriority="low" id="jetpack-stats-js" src="https://stats.wp.com/e-202629.js"></script>
   </body>
 </html>
+

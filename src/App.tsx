@@ -7,6 +7,7 @@ import { SummaryDashboard } from './components/SummaryDashboard';
 import { ChromosomeDistributionChart } from './components/ChromosomeDistributionChart';
 import { PreviewModal } from './components/PreviewModal';
 import { VideoModal } from './components/VideoModal';
+import { HaplogroupModal } from './components/HaplogroupModal';
 import { Footer } from './components/Footer';
 
 import {
@@ -43,6 +44,7 @@ export const App: React.FC = () => {
 
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [isVideoOpen, setIsVideoOpen] = useState<boolean>(false);
+  const [isHaplogroupsOpen, setIsHaplogroupsOpen] = useState<boolean>(false);
 
   const workerRef = useRef<Worker | null>(null);
 
@@ -283,6 +285,7 @@ export const App: React.FC = () => {
               onDownload={handleDownload}
               onOpenPreview={() => setIsPreviewOpen(true)}
               onOpenVideo={() => setIsVideoOpen(true)}
+              onOpenHaplogroups={() => setIsHaplogroupsOpen(true)}
               onReset={() => {
                 setResult(null);
                 setKit1Metadata(null);
@@ -310,6 +313,16 @@ export const App: React.FC = () => {
           isOpen={isVideoOpen}
           onClose={() => setIsVideoOpen(false)}
           onFinished={() => setIsVideoOpen(false)}
+        />
+
+        {/* Haplogroup Inspector Modal */}
+        <HaplogroupModal
+          isOpen={isHaplogroupsOpen}
+          onClose={() => setIsHaplogroupsOpen(false)}
+          kit1Haplogroups={result?.kit1Haplogroups}
+          kit2Haplogroups={result?.kit2Haplogroups}
+          superKitHaplogroups={result?.superKitHaplogroups}
+          haplogroupComparison={result?.haplogroupComparison}
         />
 
         {/* Footer */}

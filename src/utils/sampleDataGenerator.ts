@@ -36,10 +36,28 @@ export function generateSampleKit1Text(): string {
     }
   }
 
-  // Add 15 unique Kit 1 SNPs
+  // Add 15 unique Kit 1 autosomal SNPs
   for (let i = 0; i < 15; i++) {
     lines.push(`rs9900${i}\t1\t${900000 + i * 300}\tG\tT`);
   }
+
+  // ── Realistic Defining Y-DNA SNPs for Kit 1 (Ancestry format)
+  // Has M168, M89, M343, M269, L23 -> Resolves R1b-M269 (missing downstream P312 / U152)
+  lines.push("rs9306841\t24\t13533801\tT\tT"); // M168 (CT) - Positive Derived
+  lines.push("rs2032658\t24\t14092000\tT\tT"); // M89 (F) - Positive Derived
+  lines.push("rs2032624\t24\t18500000\tA\tA"); // M343 (R1b) - Positive Derived
+  lines.push("rs9786184\t24\t18512340\tC\tC"); // M269 (R1b-M269) - Positive Derived
+  lines.push("rs13303975\t24\t18515000\tA\tA"); // L23 (R1b-L23) - Positive Derived
+  lines.push("rs34276300\t24\t18700000\t0\t0"); // P312 - Uncalled in Kit 1!
+  lines.push("rs12338\t24\t18800000\t0\t0");    // U152 - Uncalled in Kit 1!
+
+  // ── Realistic Defining mtDNA SNPs for Kit 1 (Ancestry format)
+  // Has 14766T (HV), 7028C (H), 2706A (H) -> Resolves H (missing 3010A / 16519C)
+  lines.push("rs2853507\t25\t14766\tT\tT"); // 14766T (HV) - Positive Derived
+  lines.push("rs2853508\t25\t7028\tC\tC");  // 7028C (H) - Positive Derived
+  lines.push("rs2853509\t25\t2706\tA\tA");  // 2706A (H) - Positive Derived
+  lines.push("rs2853510\t25\t3010\t0\t0");  // 3010A (H1) - Uncalled in Kit 1!
+  lines.push("rs2853511\t25\t16519\t0\t0"); // 16519C (H1) - Uncalled in Kit 1!
 
   return lines.join("\n");
 }
@@ -77,10 +95,23 @@ export function generateSampleKit2Text(): string {
     }
   }
 
-  // Add 20 unique Kit 2 SNPs
+  // Add 20 unique Kit 2 autosomal SNPs
   for (let i = 0; i < 20; i++) {
     lines.push(`rs8800${i}\t2\t${950000 + i * 300}\tAC`);
   }
+
+  // ── Realistic Defining Y-DNA SNPs for Kit 2 (23andMe format)
+  // Has M269, L51, P312, and terminal U152 -> Resolves R1b-U152!
+  lines.push("rs9786184\tY\t18512340\tC");  // M269 - Positive Derived
+  lines.push("rs13303980\tY\t18517000\tT"); // L51 - Positive Derived
+  lines.push("rs34276300\tY\t18700000\tA"); // P312 - Positive Derived (Fills Kit 1 gap!)
+  lines.push("rs12338\tY\t18800000\tT");    // U152 - Positive Derived (Fills Kit 1 gap!)
+
+  // ── Realistic Defining mtDNA SNPs for Kit 2 (23andMe format)
+  // Has 7028C, 3010A, and 16519C -> Resolves H1! (Fills Kit 1 gaps!)
+  lines.push("rs2853508\tMT\t7028\tC");     // 7028C (H) - Positive Derived
+  lines.push("rs2853510\tMT\t3010\tA");     // 3010A (H1) - Positive Derived (Fills Kit 1 gap!)
+  lines.push("rs2853511\tMT\t16519\tC");    // 16519C (H1) - Positive Derived (Fills Kit 1 gap!)
 
   return lines.join("\n");
 }
