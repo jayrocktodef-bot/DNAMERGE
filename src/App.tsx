@@ -33,8 +33,9 @@ export const App: React.FC = () => {
   const [kit2Text, setKit2Text] = useState<string>('');
 
   const [options, setOptions] = useState<MergeOptions>({
-    primaryAuthority: 'kit1',
+    primaryAuthority: 'weighted_consensus',
     outputFormat: 'ancestry',
+    targetBuild: 'GRCh37',
   });
 
   const [isProcessing, setIsProcessing] = useState<boolean>(false);

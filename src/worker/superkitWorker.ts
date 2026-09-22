@@ -7,6 +7,10 @@ import type {
   WorkerSuccessMessage,
 } from '../types/dna';
 import { HaplogroupEngine } from '../services/haplogroupEngine';
+import { detectGenomeBuild, inferPlatformProfile } from '../services/buildDetector';
+import { resolveLocusConsensus } from '../services/consensusEngine';
+import { inferBiologicalSex, sanitizeHemizygousLocus } from '../services/sexInferrer';
+import { harmonizeIndelAlleles } from '../services/indelHarmonizer';
 
 // Web Worker context scope declaration
 const ctx: Worker = self as unknown as Worker;
@@ -64,6 +68,11 @@ function normalizeAlleles(raw1: string, raw2?: string): { a1: string; a2: string
     return { a1: '0', a2: '0', isValid: false };
   }
 
+  // Harmonize structural variant / InDel notations ('I'/'D' vs multi-base sequences)
+  const indelResult = harmonizeIndelAlleles(clean1, clean2);
+  clean1 = indelResult.a1;
+  clean2 = indelResult.a2;
+
   // Alphabetically sort unphased heterozygous calls (e.g. "G A" -> "A G")
   if (clean1 > clean2) {
     const tmp = clean1;
@@ -72,39 +81,6 @@ function normalizeAlleles(raw1: string, raw2?: string): { a1: string; a2: string
   }
 
   return { a1: clean1, a2: clean2, isValid: true };
-}
-
-// Complement map for DNA strands
-const COMPLEMENT: Record<string, string> = {
-  A: 'T',
-  T: 'A',
-  C: 'G',
-  G: 'C',
-  I: 'I',
-  D: 'D',
-  '0': '0',
-};
-
-// Check if two genotypes are identical (either direct or reverse complement for non-ambiguous SNPs)
-function areGenotypesEqual(c1: { a1: string; a2: string }, c2: { a1: string; a2: string }): boolean {
-  // Direct match (already canonical sorted in normalizeAlleles)
-  if (c1.a1 === c2.a1 && c1.a2 === c2.a2) return true;
-
-  // Reverse strand complement match check for non-ambiguous SNPs (e.g. A/A vs T/T or A/C vs T/G)
-  const isAmbiguous1 = (c1.a1 === 'A' && c1.a2 === 'T') || (c1.a1 === 'C' && c1.a2 === 'G');
-  const isAmbiguous2 = (c2.a1 === 'A' && c2.a2 === 'T') || (c2.a1 === 'C' && c2.a2 === 'G');
-
-  if (!isAmbiguous1 && !isAmbiguous2) {
-    const compA1 = COMPLEMENT[c2.a1] || c2.a1;
-    const compA2 = COMPLEMENT[c2.a2] || c2.a2;
-    // Canonical sort complement pair
-    const [cComp1, cComp2] = compA1 <= compA2 ? [compA1, compA2] : [compA2, compA1];
-    if (c1.a1 === cComp1 && c1.a2 === cComp2) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 // Parse text block line by line into ParsedSNP list
@@ -321,9 +297,34 @@ ctx.onmessage = (event: MessageEvent) => {
     postProgress('parsing_kit2', 2, 40, `Successfully parsed ${kit2SNPs.length.toLocaleString()} loci from Kit 2.`);
 
     // -------------------------------------------------------------
-    // STAGE 3: Deduplication & Conflict Resolution on (chr, pos)
+    // STAGE 2.5: Build Detection & Platform Confidence Profiling
     // -------------------------------------------------------------
-    postProgress('merging', 3, 50, 'Deduplicating loci on (chr, pos) coordinates and resolving conflicts...');
+    postProgress('merging', 3, 45, 'Detecting genome builds (GRCh37/GRCh38) and platform quality profiles...');
+    const k1RsidLocMap = new Map<string, { chr: string; pos: number }>();
+    for (let i = 0; i < kit1SNPs.length; i++) {
+      const s = kit1SNPs[i];
+      if (s.rsid && s.rsid.startsWith('rs')) {
+        k1RsidLocMap.set(s.rsid.toLowerCase(), { chr: s.chr, pos: s.pos });
+      }
+    }
+    const k1BuildInfo = detectGenomeBuild(k1RsidLocMap);
+
+    const k2RsidLocMap = new Map<string, { chr: string; pos: number }>();
+    for (let i = 0; i < kit2SNPs.length; i++) {
+      const s = kit2SNPs[i];
+      if (s.rsid && s.rsid.startsWith('rs')) {
+        k2RsidLocMap.set(s.rsid.toLowerCase(), { chr: s.chr, pos: s.pos });
+      }
+    }
+    const k2BuildInfo = detectGenomeBuild(k2RsidLocMap);
+
+    const platform1 = inferPlatformProfile(k1Content, kit1SNPs.length, k1BuildInfo.build);
+    const platform2 = inferPlatformProfile(k2Content, kit2SNPs.length, k2BuildInfo.build);
+
+    // -------------------------------------------------------------
+    // STAGE 3: Deduplication, Cross-Build Alignment & Consensus
+    // -------------------------------------------------------------
+    postProgress('merging', 3, 50, `Merging loci [${platform1.name} + ${platform2.name}]...`);
 
     interface LocusRecord {
       rsid: string;
@@ -334,6 +335,7 @@ ctx.onmessage = (event: MessageEvent) => {
     }
 
     const locusMap = new Map<string, LocusRecord>();
+    const rsidToKey = new Map<string, string>();
 
     // Add Kit 1 loci
     for (let i = 0; i < kit1SNPs.length; i++) {
@@ -345,18 +347,30 @@ ctx.onmessage = (event: MessageEvent) => {
         pos: snp.pos,
         kit1: { a1: snp.a1, a2: snp.a2, isValid: snp.isValid, rsid: snp.rsid },
       });
+      if (snp.rsid && snp.rsid.startsWith('rs')) {
+        rsidToKey.set(snp.rsid.toLowerCase(), key);
+      }
     }
 
     let overlappingCount = 0;
-    let gapFilledCount = 0;
-    let discordantCount = 0;
     let uniqueKit2Count = 0;
 
-    // Add Kit 2 loci and resolve conflicts
+    // Add Kit 2 loci and match on (chr, pos) or cross-build rsID alias
     for (let i = 0; i < kit2SNPs.length; i++) {
       const snp = kit2SNPs[i];
-      const key = `${snp.chr}:${snp.pos}`;
-      const existing = locusMap.get(key);
+      let key = `${snp.chr}:${snp.pos}`;
+      let existing = locusMap.get(key);
+
+      // Cross-build matching: if not found by coordinate, check if matching by standard rsID
+      if (!existing && snp.rsid && snp.rsid.startsWith('rs')) {
+        const mappedKey = rsidToKey.get(snp.rsid.toLowerCase());
+        if (mappedKey) {
+          existing = locusMap.get(mappedKey);
+          if (existing) {
+            key = mappedKey;
+          }
+        }
+      }
 
       if (existing) {
         overlappingCount++;
@@ -376,6 +390,9 @@ ctx.onmessage = (event: MessageEvent) => {
           pos: snp.pos,
           kit2: { a1: snp.a1, a2: snp.a2, isValid: snp.isValid, rsid: snp.rsid },
         });
+        if (snp.rsid && snp.rsid.startsWith('rs')) {
+          rsidToKey.set(snp.rsid.toLowerCase(), key);
+        }
       }
     }
 
@@ -383,52 +400,98 @@ ctx.onmessage = (event: MessageEvent) => {
     postProgress('merging', 3, 70, `Merged ${locusMap.size.toLocaleString()} unique genomic loci.`);
 
     // -------------------------------------------------------------
-    // STAGE 4: Sorting by Coordinate (Chr 1..22, X, Y, MT, Ascending Pos)
+    // STAGE 4: Weighted Consensus Arbitration, Sex Inference & Hemizygous QC
     // -------------------------------------------------------------
-    postProgress('sorting', 4, 75, 'Sorting SuperKit sequentially by chromosome and numeric position...');
+    postProgress('sorting', 4, 75, 'Inferring biological sex, applying Bayesian consensus & hemizygous QC...');
 
-    const finalSNPs: CanonicalSNP[] = [];
+    // Collect Chr X and Chr Y loci for Biological Sex Inference
+    const xSnps: Array<{ pos: number; a1: string; a2: string; isValid: boolean }> = [];
+    let yCallCount = 0;
 
     locusMap.forEach((rec) => {
-      let finalA1 = '0';
-      let finalA2 = '0';
+      if (rec.chr === 'X') {
+        const obs = rec.kit1?.isValid ? rec.kit1 : rec.kit2;
+        if (obs && obs.isValid) {
+          xSnps.push({ pos: rec.pos, a1: obs.a1, a2: obs.a2, isValid: true });
+        }
+      } else if (rec.chr === 'Y') {
+        if ((rec.kit1 && rec.kit1.isValid) || (rec.kit2 && rec.kit2.isValid)) {
+          yCallCount++;
+        }
+      }
+    });
 
-      const k1 = rec.kit1;
-      const k2 = rec.kit2;
+    const sexResult = inferBiologicalSex(
+      xSnps,
+      yCallCount,
+      (options.targetBuild as 'GRCh37' | 'GRCh38') || 'GRCh37'
+    );
 
-      if (k1 && !k2) {
-        finalA1 = k1.a1;
-        finalA2 = k1.a2;
-      } else if (!k1 && k2) {
-        finalA1 = k2.a1;
-        finalA2 = k2.a2;
-      } else if (k1 && k2) {
-        if (!k1.isValid && k2.isValid) {
-          finalA1 = k2.a1;
-          finalA2 = k2.a2;
-          gapFilledCount++;
-        } else if (k1.isValid && !k2.isValid) {
-          finalA1 = k1.a1;
-          finalA2 = k1.a2;
-          gapFilledCount++;
-        } else if (!k1.isValid && !k2.isValid) {
-          finalA1 = '0';
-          finalA2 = '0';
-        } else {
-          // Check genotype equivalence (including unphased ordering and reverse strand complement)
-          if (areGenotypesEqual(k1, k2)) {
-            finalA1 = k1.a1;
-            finalA2 = k1.a2;
+    const finalSNPs: CanonicalSNP[] = [];
+    let gapFilledCount = 0;
+    let discordantCount = 0;
+    let concordantCount = 0;
+    let totalOverlappingValid = 0;
+    let autosomalHetCount = 0;
+    let autosomalValidCount = 0;
+    let hemizygousSanitizedCount = 0;
+    let indelsHarmonizedCount = 0;
+
+    locusMap.forEach((rec) => {
+      const consensus = resolveLocusConsensus(
+        rec.kit1,
+        rec.kit2,
+        platform1.baseWeight,
+        platform2.baseWeight,
+        options.primaryAuthority || 'weighted_consensus'
+      );
+
+      if (rec.kit1 && rec.kit2) {
+        if (rec.kit1.isValid && rec.kit2.isValid) {
+          totalOverlappingValid++;
+          if (!consensus.isDiscordant) {
+            concordantCount++;
           } else {
-            // Discordant Call! Apply Primary Authority rule
             discordantCount++;
-            if (options.primaryAuthority === 'kit1') {
-              finalA1 = k1.a1;
-              finalA2 = k1.a2;
-            } else {
-              finalA1 = k2.a1;
-              finalA2 = k2.a2;
-            }
+          }
+        } else if (!rec.kit1.isValid || !rec.kit2.isValid) {
+          if (rec.kit1.isValid || rec.kit2.isValid) {
+            gapFilledCount++;
+          }
+        }
+      }
+
+      let finalA1 = consensus.a1;
+      let finalA2 = consensus.a2;
+
+      // Track InDels
+      if (finalA1 === 'I' || finalA1 === 'D' || finalA2 === 'I' || finalA2 === 'D') {
+        indelsHarmonizedCount++;
+      }
+
+      // Enforce biological hemizygous constraints (Chr Y/MT and male non-PAR Chr X)
+      const hemSanitize = sanitizeHemizygousLocus(
+        rec.chr,
+        rec.pos,
+        finalA1,
+        finalA2,
+        sexResult.inferredSex,
+        (options.targetBuild as 'GRCh37' | 'GRCh38') || 'GRCh37'
+      );
+
+      if (hemSanitize.wasSanitized) {
+        finalA1 = hemSanitize.a1;
+        finalA2 = hemSanitize.a2;
+        hemizygousSanitizedCount++;
+      }
+
+      // Autosomal heterozygosity tracking
+      const orderRank = normalizeChromosome(rec.chr).orderRank;
+      if (orderRank >= 1 && orderRank <= 22) {
+        if (finalA1 !== '0' && finalA2 !== '0') {
+          autosomalValidCount++;
+          if (finalA1 !== finalA2) {
+            autosomalHetCount++;
           }
         }
       }
@@ -520,6 +583,29 @@ ctx.onmessage = (event: MessageEvent) => {
       superMarkers
     );
 
+    const concordanceRate = totalOverlappingValid > 0
+      ? Math.round((concordantCount / totalOverlappingValid) * 10000) / 100
+      : 100;
+
+    const heterozygosityRate = autosomalValidCount > 0
+      ? Math.round((autosomalHetCount / autosomalValidCount) * 10000) / 100
+      : 0;
+
+    let donorMatchStatus: 'IDENTICAL_DONOR' | 'HIGH_CONCORDANCE' | 'SUSPECT_MISMATCH' | 'DIFFERENT_DONORS' = 'IDENTICAL_DONOR';
+    if (totalOverlappingValid >= 500) {
+      if (concordanceRate >= 99.0) {
+        donorMatchStatus = 'IDENTICAL_DONOR';
+      } else if (concordanceRate >= 94.0) {
+        donorMatchStatus = 'HIGH_CONCORDANCE';
+      } else if (concordanceRate >= 80.0) {
+        donorMatchStatus = 'SUSPECT_MISMATCH';
+      } else {
+        donorMatchStatus = 'DIFFERENT_DONORS';
+      }
+    }
+
+    const resolvedTargetBuild = options.targetBuild || 'GRCh37';
+
     // -------------------------------------------------------------
     // STAGE 5: Generating Output File in Chunked Blobs (No Heap Overflows)
     // -------------------------------------------------------------
@@ -532,7 +618,12 @@ ctx.onmessage = (event: MessageEvent) => {
     if (options.outputFormat === 'ancestry') {
       headerLines.push('# AncestryDNA Raw Data SuperKit Export');
       headerLines.push(`# Generated by DNA SuperKit Builder on ${timestamp}`);
-      headerLines.push('# Build Reference: GRCh37 (hg19)');
+      headerLines.push(`# Assembly: ${resolvedTargetBuild} (Source Kits: Kit 1 = ${k1BuildInfo.build}, Kit 2 = ${k2BuildInfo.build})`);
+      headerLines.push(`# Consensus Engine: Weighted Bayesian Consensus (${platform1.name} [wt ${platform1.baseWeight}] + ${platform2.name} [wt ${platform2.baseWeight}])`);
+      headerLines.push(`# Inferred Biological Sex: ${sexResult.inferredSex} (Chr X Het Rate: ${sexResult.xHetRate}%)`);
+      headerLines.push(`# Quality Sanitations: ${hemizygousSanitizedCount.toLocaleString()} hemizygous loci sanitized | ${indelsHarmonizedCount.toLocaleString()} InDels harmonized`);
+      headerLines.push(`# Donor Concordance Rate: ${concordanceRate}% (${donorMatchStatus.replace('_', ' ')})`);
+      headerLines.push(`# Autosomal Heterozygosity: ${heterozygosityRate}%`);
       headerLines.push(`# Total SuperKit Loci: ${finalSNPs.length.toLocaleString()}`);
       if (superKitHaplogroups.yDna) {
         headerLines.push(`# Y-DNA Haplogroup: ${superKitHaplogroups.yDna.terminalHaplogroup.code} (${superKitHaplogroups.yDna.terminalHaplogroup.shortName}) [Confidence: ${superKitHaplogroups.yDna.confidenceScore}%, Clade: ${superKitHaplogroups.yDna.terminalHaplogroup.cladeName}]`);
@@ -554,7 +645,12 @@ ctx.onmessage = (event: MessageEvent) => {
     } else {
       headerLines.push('# 23andMe Raw Data SuperKit Export');
       headerLines.push(`# Generated by DNA SuperKit Builder on ${timestamp}`);
-      headerLines.push('# Assembly: GRCh37');
+      headerLines.push(`# Assembly: ${resolvedTargetBuild} (Source Kits: Kit 1 = ${k1BuildInfo.build}, Kit 2 = ${k2BuildInfo.build})`);
+      headerLines.push(`# Consensus Engine: Weighted Bayesian Consensus (${platform1.name} [wt ${platform1.baseWeight}] + ${platform2.name} [wt ${platform2.baseWeight}])`);
+      headerLines.push(`# Inferred Biological Sex: ${sexResult.inferredSex} (Chr X Het Rate: ${sexResult.xHetRate}%)`);
+      headerLines.push(`# Quality Sanitations: ${hemizygousSanitizedCount.toLocaleString()} hemizygous loci sanitized | ${indelsHarmonizedCount.toLocaleString()} InDels harmonized`);
+      headerLines.push(`# Donor Concordance Rate: ${concordanceRate}% (${donorMatchStatus.replace('_', ' ')})`);
+      headerLines.push(`# Autosomal Heterozygosity: ${heterozygosityRate}%`);
       headerLines.push(`# Total SuperKit Loci: ${finalSNPs.length.toLocaleString()}`);
       if (superKitHaplogroups.yDna) {
         headerLines.push(`# Y-DNA Haplogroup: ${superKitHaplogroups.yDna.terminalHaplogroup.code} (${superKitHaplogroups.yDna.terminalHaplogroup.shortName}) [Confidence: ${superKitHaplogroups.yDna.confidenceScore}%]`);
@@ -645,6 +741,16 @@ ctx.onmessage = (event: MessageEvent) => {
       previewRows: finalSNPs.slice(0, 100),
       chromosomeDistribution,
       executionTimeMs,
+      concordanceRate,
+      heterozygosityRate,
+      donorMatchStatus,
+      kit1Build: k1BuildInfo.build,
+      kit2Build: k2BuildInfo.build,
+      targetBuild: resolvedTargetBuild,
+      inferredSex: sexResult.inferredSex,
+      xHeterozygosityRate: sexResult.xHetRate,
+      hemizygousSanitizedCount,
+      indelsHarmonizedCount,
       kit1Haplogroups,
       kit2Haplogroups,
       superKitHaplogroups,

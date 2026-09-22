@@ -19,8 +19,9 @@ export interface KitFileMetadata {
 }
 
 export interface MergeOptions {
-  primaryAuthority: 'kit1' | 'kit2';
+  primaryAuthority: 'weighted_consensus' | 'kit1' | 'kit2';
   outputFormat: 'ancestry' | '23andMe';
+  targetBuild?: 'GRCh37' | 'GRCh38';
 }
 
 export type ProcessingStage =
@@ -64,6 +65,16 @@ export interface WorkerSuccessMessage {
   previewRows: CanonicalSNP[];
   chromosomeDistribution: ChromosomeCount[];
   executionTimeMs: number;
+  concordanceRate?: number;
+  heterozygosityRate?: number;
+  donorMatchStatus?: 'IDENTICAL_DONOR' | 'HIGH_CONCORDANCE' | 'SUSPECT_MISMATCH' | 'DIFFERENT_DONORS';
+  kit1Build?: string;
+  kit2Build?: string;
+  targetBuild?: string;
+  inferredSex?: 'MALE' | 'FEMALE' | 'AMBIGUOUS';
+  xHeterozygosityRate?: number;
+  hemizygousSanitizedCount?: number;
+  indelsHarmonizedCount?: number;
   kit1Haplogroups?: HaplogroupSummary;
   kit2Haplogroups?: HaplogroupSummary;
   superKitHaplogroups?: HaplogroupSummary;
