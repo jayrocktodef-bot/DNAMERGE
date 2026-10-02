@@ -75,7 +75,7 @@ export function detectGenomeBuild(
   }
 
   return {
-    build: matches37 >= matches38 ? 'GRCh37' : 'GRCh38',
+    build: 'Unknown',
     confidence: Math.max(ratio37, ratio38),
     matches37,
     matches38,

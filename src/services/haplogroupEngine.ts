@@ -19,6 +19,14 @@ interface LocusCall {
   isValid: boolean;
 }
 
+// IUPAC heteroplasmy codes. Excludes 'D' (deletion call) and 'N' (no-call) —
+// neither may ever match through expansion.
+export const IUPAC_HETEROZYGOTES: Record<string, string> = {
+  R: 'AG', Y: 'CT', S: 'GC', W: 'AT', K: 'GT', M: 'AC',
+  B: 'CGT', H: 'ACT', V: 'ACG',
+};
+export const expandIupac = (g: string): string => IUPAC_HETEROZYGOTES[g.toUpperCase()] ?? g.toUpperCase();
+
 export class HaplogroupEngine {
   /**
    * Evaluates SNPs against defining markers for Y-DNA or mtDNA
@@ -49,7 +57,7 @@ export class HaplogroupEngine {
         const derived = snp.derivedAllele.toUpperCase();
         const ancestral = snp.ancestralAllele.toUpperCase();
 
-        if (userGenotype.includes(derived)) {
+        if (expandIupac(userGenotype).includes(derived)) {
           status = 'POSITIVE_DERIVED';
           details = `Derived mutation detected (${derived}). Diagnostic for clade ${snp.haplogroup}.`;
         } else if (userGenotype.includes(ancestral)) {
@@ -190,8 +198,10 @@ export class HaplogroupEngine {
       return a.negatives - b.negatives;
     });
 
-    const best = validCandidates[0] || scored.find((s) => s.positives > 0) || scored[0];
-    if (!best || (best.positives === 0 && type === 'PATERNAL_YDNA')) {
+    // No positive, non-conflicted evidence is not a call — for either lineage.
+    // (Previously mtDNA fell through to scored[0] at 70% confidence off zero markers.)
+    const best = validCandidates[0] || null;
+    if (!best) {
       return null;
     }
 

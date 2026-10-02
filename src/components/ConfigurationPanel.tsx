@@ -156,6 +156,67 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
               </div>
               <span className="text-[10px] text-zinc-400 font-mono">Modern NCBI Standard</span>
             </button>
+
+            {/* Per-Kit Source Build Selectors */}
+            <div className="pt-2.5 border-t border-zinc-800/80 space-y-2 mt-1">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 font-semibold block">
+                Source Kit Build Overrides
+              </span>
+
+              {/* Kit 1 Build */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-zinc-300 font-medium">Kit 1 Build:</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['auto', 'GRCh37', 'GRCh38'] as const).map((b) => {
+                    const isSelected = (options.kit1BuildOverride || 'auto') === b;
+                    return (
+                      <button
+                        key={b}
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => onChangeOptions({ ...options, kit1BuildOverride: b })}
+                        className={`min-h-[32px] px-2 py-1 rounded-lg border text-[11px] font-mono font-medium transition-all ${
+                          isSelected
+                            ? 'bg-amber-500/25 border-amber-500/80 text-amber-200 font-bold'
+                            : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                        }`}
+                      >
+                        {b === 'auto' ? 'Auto-detect' : b}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Kit 2 Build */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-zinc-300 font-medium">Kit 2 Build:</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['auto', 'GRCh37', 'GRCh38'] as const).map((b) => {
+                    const isSelected = (options.kit2BuildOverride || 'auto') === b;
+                    return (
+                      <button
+                        key={b}
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => onChangeOptions({ ...options, kit2BuildOverride: b })}
+                        className={`min-h-[32px] px-2 py-1 rounded-lg border text-[11px] font-mono font-medium transition-all ${
+                          isSelected
+                            ? 'bg-yellow-500/25 border-yellow-500/80 text-yellow-200 font-bold'
+                            : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                        }`}
+                      >
+                        {b === 'auto' ? 'Auto-detect' : b}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

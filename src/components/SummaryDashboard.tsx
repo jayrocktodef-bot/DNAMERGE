@@ -270,6 +270,11 @@ export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({
               <span className="text-[10px] text-zinc-400 block mt-0.5 font-mono">
                 Kit 1: {result.kit1Build || 'GRCh37'} | Kit 2: {result.kit2Build || 'GRCh37'}
               </span>
+              {result.liftoverStats && result.liftoverStats.length > 0 && (
+                <span className="text-[10px] text-amber-400 block mt-0.5 font-mono">
+                  Liftover: {result.liftoverStats.map((s) => `${s.remappedCount.toLocaleString()} remapped (${s.fromBuild}→${s.toBuild}${s.droppedCount > 0 ? `, ${s.droppedCount.toLocaleString()} dropped` : ''})`).join('; ')}
+                </span>
+              )}
             </div>
             <Layers className="w-6 h-6 text-yellow-400/60" />
           </div>

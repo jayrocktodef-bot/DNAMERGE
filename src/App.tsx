@@ -214,7 +214,8 @@ export const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `DNA_SuperKit_GRCh37_${options.outputFormat}_${Date.now()}.txt`;
+    const targetBuildName = options.targetBuild || 'GRCh37';
+    a.download = `DNA_SuperKit_${targetBuildName}_${options.outputFormat}_${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

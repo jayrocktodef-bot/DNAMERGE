@@ -111,6 +111,9 @@ export function resolveLocusConsensus(
   // Subcase A: Heterozygote vs Homozygote Conflict (Allelic Dropout Rescue)
   // In BeadArray technology, allelic dropout (failing to call one allele of a heterozygote) is ~100x more
   // prevalent than an erroneous false-positive heterozygote call.
+  // Note: Standard microarray platform profiles define baseWeight >= 0.75, which exceeds the 0.70 threshold.
+  // Thus het-dropout rescue is intentionally unconditional for standard commercial microarray platforms;
+  // the >= 0.70 gate binds only for heavily penalized or custom degraded profiles (< 0.70).
   if (het1 && !het2) {
     // If Kit 1 observed both alleles with reasonable weight, rescue the heterozygote
     if (w1 >= 0.70) {

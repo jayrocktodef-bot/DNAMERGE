@@ -18,10 +18,22 @@ export interface KitFileMetadata {
   file?: File;
 }
 
+export type BuildOverride = 'auto' | 'GRCh37' | 'GRCh38';
+
+export interface LiftoverStats {
+  kit: 'kit1' | 'kit2';
+  fromBuild: string;
+  toBuild: string;
+  remappedCount: number;
+  droppedCount: number;
+}
+
 export interface MergeOptions {
   primaryAuthority: 'weighted_consensus' | 'kit1' | 'kit2';
   outputFormat: 'ancestry' | '23andMe';
   targetBuild?: 'GRCh37' | 'GRCh38';
+  kit1BuildOverride?: BuildOverride;
+  kit2BuildOverride?: BuildOverride;
 }
 
 export type ProcessingStage =
@@ -71,6 +83,7 @@ export interface WorkerSuccessMessage {
   kit1Build?: string;
   kit2Build?: string;
   targetBuild?: string;
+  liftoverStats?: LiftoverStats[];
   inferredSex?: 'MALE' | 'FEMALE' | 'AMBIGUOUS';
   xHeterozygosityRate?: number;
   hemizygousSanitizedCount?: number;

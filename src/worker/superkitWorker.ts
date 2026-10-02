@@ -1,6 +1,7 @@
 import type {
   CanonicalSNP,
   ChromosomeCount,
+  LiftoverStats,
   MergeOptions,
   WorkerErrorMessage,
   WorkerProgressMessage,
@@ -11,9 +12,10 @@ import { detectGenomeBuild, inferPlatformProfile } from '../services/buildDetect
 import { resolveLocusConsensus } from '../services/consensusEngine';
 import { inferBiologicalSex, sanitizeHemizygousLocus } from '../services/sexInferrer';
 import { harmonizeIndelAlleles } from '../services/indelHarmonizer';
+import { loadChain, liftSnpList } from '../services/liftoverEngine';
 
 // Web Worker context scope declaration
-const ctx: Worker = self as unknown as Worker;
+const ctx: Worker | undefined = typeof self !== 'undefined' ? (self as unknown as Worker) : undefined;
 
 interface ParsedSNP {
   rsid: string;
@@ -264,19 +266,39 @@ function unpackBufferIfNeeded(buffer: ArrayBuffer, decoder: TextDecoder): string
   return decoder.decode(buffer);
 }
 
-// Main Web Worker message handler
-ctx.onmessage = (event: MessageEvent) => {
+export interface ExecuteMergeParams {
+  kit1Text?: string;
+  kit2Text?: string;
+  kit1Buffer?: ArrayBuffer;
+  kit2Buffer?: ArrayBuffer;
+  options: MergeOptions;
+  onProgress?: (progress: WorkerProgressMessage) => void;
+}
+
+export async function executeMerge(params: ExecuteMergeParams): Promise<WorkerSuccessMessage> {
+  const { kit1Text, kit2Text, kit1Buffer, kit2Buffer, options, onProgress } = params;
   const startTime = performance.now();
-  const { kit1Text, kit2Text, kit1Buffer, kit2Buffer, options } = event.data as {
-    kit1Text?: string;
-    kit2Text?: string;
-    kit1Buffer?: ArrayBuffer;
-    kit2Buffer?: ArrayBuffer;
-    options: MergeOptions;
+
+  const reportProgress = (
+    stage: WorkerProgressMessage['stage'],
+    stageNumber: number,
+    percentage: number,
+    detailMessage: string
+  ) => {
+    if (onProgress) {
+      onProgress({
+        type: 'PROGRESS',
+        stage,
+        stageNumber,
+        percentage,
+        detailMessage,
+      });
+    }
   };
 
-  try {
-    const textDecoder = new TextDecoder('utf-8');
+  const postProgress = reportProgress;
+
+  const textDecoder = new TextDecoder('utf-8');
 
     // Decode or unpack compressed buffers (.zip/.gz) automatically
     const k1Content = kit1Buffer ? unpackBufferIfNeeded(kit1Buffer, textDecoder) : kit1Text || '';
@@ -318,8 +340,66 @@ ctx.onmessage = (event: MessageEvent) => {
     }
     const k2BuildInfo = detectGenomeBuild(k2RsidLocMap);
 
-    const platform1 = inferPlatformProfile(k1Content, kit1SNPs.length, k1BuildInfo.build);
-    const platform2 = inferPlatformProfile(k2Content, kit2SNPs.length, k2BuildInfo.build);
+    const k1BuildOverride = options.kit1BuildOverride;
+    const k2BuildOverride = options.kit2BuildOverride;
+
+    const k1EffectiveBuild: 'GRCh37' | 'GRCh38' | 'Unknown' =
+      k1BuildOverride && k1BuildOverride !== 'auto' ? k1BuildOverride : k1BuildInfo.build;
+    const k2EffectiveBuild: 'GRCh37' | 'GRCh38' | 'Unknown' =
+      k2BuildOverride && k2BuildOverride !== 'auto' ? k2BuildOverride : k2BuildInfo.build;
+
+    // Refuse merge if genome build could not be determined and no manual override is asserted
+    if (k1EffectiveBuild === 'Unknown') {
+      throw new Error(
+        `Kit 1 build could not be determined with confidence (GRCh37 sentinel matches: ${k1BuildInfo.matches37}, GRCh38 sentinel matches: ${k1BuildInfo.matches38}, tested: ${k1BuildInfo.testedSentinels}). Please select the genome build manually in the Kit 1 build selector before merging.`
+      );
+    }
+    if (k2EffectiveBuild === 'Unknown') {
+      throw new Error(
+        `Kit 2 build could not be determined with confidence (GRCh37 sentinel matches: ${k2BuildInfo.matches37}, GRCh38 sentinel matches: ${k2BuildInfo.matches38}, tested: ${k2BuildInfo.testedSentinels}). Please select the genome build manually in the Kit 2 build selector before merging.`
+      );
+    }
+
+    const platform1 = inferPlatformProfile(k1Content, kit1SNPs.length, k1EffectiveBuild);
+    const platform2 = inferPlatformProfile(k2Content, kit2SNPs.length, k2EffectiveBuild);
+
+    const resolvedTargetBuild: 'GRCh37' | 'GRCh38' =
+      (options.targetBuild as 'GRCh37' | 'GRCh38') || 'GRCh37';
+
+    // -------------------------------------------------------------
+    // STAGE 2.6: Cross-Build Liftover (Runs only when builds differ)
+    // -------------------------------------------------------------
+    const liftoverStats: LiftoverStats[] = [];
+    let processedKit1SNPs = kit1SNPs;
+    let processedKit2SNPs = kit2SNPs;
+
+    if (k1EffectiveBuild !== resolvedTargetBuild) {
+      postProgress('merging', 2, 47, `Remapping Kit 1 coordinates from ${k1EffectiveBuild} to ${resolvedTargetBuild}...`);
+      const chain = await loadChain(k1EffectiveBuild, resolvedTargetBuild);
+      const res = liftSnpList(processedKit1SNPs, chain);
+      processedKit1SNPs = res.liftedSNPs;
+      liftoverStats.push({
+        kit: 'kit1',
+        fromBuild: k1EffectiveBuild,
+        toBuild: resolvedTargetBuild,
+        remappedCount: res.remappedCount,
+        droppedCount: res.droppedCount,
+      });
+    }
+
+    if (k2EffectiveBuild !== resolvedTargetBuild) {
+      postProgress('merging', 2, 49, `Remapping Kit 2 coordinates from ${k2EffectiveBuild} to ${resolvedTargetBuild}...`);
+      const chain = await loadChain(k2EffectiveBuild, resolvedTargetBuild);
+      const res = liftSnpList(processedKit2SNPs, chain);
+      processedKit2SNPs = res.liftedSNPs;
+      liftoverStats.push({
+        kit: 'kit2',
+        fromBuild: k2EffectiveBuild,
+        toBuild: resolvedTargetBuild,
+        remappedCount: res.remappedCount,
+        droppedCount: res.droppedCount,
+      });
+    }
 
     // -------------------------------------------------------------
     // STAGE 3: Deduplication, Cross-Build Alignment & Consensus
@@ -338,8 +418,8 @@ ctx.onmessage = (event: MessageEvent) => {
     const rsidToKey = new Map<string, string>();
 
     // Add Kit 1 loci
-    for (let i = 0; i < kit1SNPs.length; i++) {
-      const snp = kit1SNPs[i];
+    for (let i = 0; i < processedKit1SNPs.length; i++) {
+      const snp = processedKit1SNPs[i];
       const key = `${snp.chr}:${snp.pos}`;
       locusMap.set(key, {
         rsid: snp.rsid,
@@ -356,8 +436,8 @@ ctx.onmessage = (event: MessageEvent) => {
     let uniqueKit2Count = 0;
 
     // Add Kit 2 loci and match on (chr, pos) or cross-build rsID alias
-    for (let i = 0; i < kit2SNPs.length; i++) {
-      const snp = kit2SNPs[i];
+    for (let i = 0; i < processedKit2SNPs.length; i++) {
+      const snp = processedKit2SNPs[i];
       let key = `${snp.chr}:${snp.pos}`;
       let existing = locusMap.get(key);
 
@@ -396,7 +476,7 @@ ctx.onmessage = (event: MessageEvent) => {
       }
     }
 
-    const uniqueKit1Count = kit1SNPs.length - overlappingCount;
+    const uniqueKit1Count = processedKit1SNPs.length - overlappingCount;
     postProgress('merging', 3, 70, `Merged ${locusMap.size.toLocaleString()} unique genomic loci.`);
 
     // -------------------------------------------------------------
@@ -528,8 +608,8 @@ ctx.onmessage = (event: MessageEvent) => {
     const k1RsidMap = new Map<string, { a1: string; a2: string; isValid: boolean }>();
     let k1YCount = 0;
     let k1MtCount = 0;
-    for (let i = 0; i < kit1SNPs.length; i++) {
-      const s = kit1SNPs[i];
+    for (let i = 0; i < processedKit1SNPs.length; i++) {
+      const s = processedKit1SNPs[i];
       if (s.chr === 'Y') k1YCount++;
       if (s.chr === 'MT') k1MtCount++;
       const val = { a1: s.a1, a2: s.a2, isValid: s.isValid };
@@ -542,8 +622,8 @@ ctx.onmessage = (event: MessageEvent) => {
     const k2RsidMap = new Map<string, { a1: string; a2: string; isValid: boolean }>();
     let k2YCount = 0;
     let k2MtCount = 0;
-    for (let i = 0; i < kit2SNPs.length; i++) {
-      const s = kit2SNPs[i];
+    for (let i = 0; i < processedKit2SNPs.length; i++) {
+      const s = processedKit2SNPs[i];
       if (s.chr === 'Y') k2YCount++;
       if (s.chr === 'MT') k2MtCount++;
       const val = { a1: s.a1, a2: s.a2, isValid: s.isValid };
@@ -604,8 +684,6 @@ ctx.onmessage = (event: MessageEvent) => {
       }
     }
 
-    const resolvedTargetBuild = options.targetBuild || 'GRCh37';
-
     // -------------------------------------------------------------
     // STAGE 5: Generating Output File in Chunked Blobs (No Heap Overflows)
     // -------------------------------------------------------------
@@ -618,7 +696,15 @@ ctx.onmessage = (event: MessageEvent) => {
     if (options.outputFormat === 'ancestry') {
       headerLines.push('# AncestryDNA Raw Data SuperKit Export');
       headerLines.push(`# Generated by DNA SuperKit Builder on ${timestamp}`);
-      headerLines.push(`# Assembly: ${resolvedTargetBuild} (Source Kits: Kit 1 = ${k1BuildInfo.build}, Kit 2 = ${k2BuildInfo.build})`);
+      headerLines.push(`# Assembly: ${resolvedTargetBuild} (Source Kits: Kit 1 = ${k1EffectiveBuild}, Kit 2 = ${k2EffectiveBuild})`);
+      if (liftoverStats.length > 0) {
+        for (const stat of liftoverStats) {
+          const kitLabel = liftoverStats.length > 1 ? `${stat.kit === 'kit1' ? 'Kit 1' : 'Kit 2'}: ` : '';
+          headerLines.push(
+            `# Liftover: ${kitLabel}${stat.remappedCount.toLocaleString()} loci remapped ${stat.fromBuild} → ${stat.toBuild} (${stat.droppedCount.toLocaleString()} unmappable, dropped)`
+          );
+        }
+      }
       headerLines.push(`# Consensus Engine: Weighted Bayesian Consensus (${platform1.name} [wt ${platform1.baseWeight}] + ${platform2.name} [wt ${platform2.baseWeight}])`);
       headerLines.push(`# Inferred Biological Sex: ${sexResult.inferredSex} (Chr X Het Rate: ${sexResult.xHetRate}%)`);
       headerLines.push(`# Quality Sanitations: ${hemizygousSanitizedCount.toLocaleString()} hemizygous loci sanitized | ${indelsHarmonizedCount.toLocaleString()} InDels harmonized`);
@@ -645,7 +731,15 @@ ctx.onmessage = (event: MessageEvent) => {
     } else {
       headerLines.push('# 23andMe Raw Data SuperKit Export');
       headerLines.push(`# Generated by DNA SuperKit Builder on ${timestamp}`);
-      headerLines.push(`# Assembly: ${resolvedTargetBuild} (Source Kits: Kit 1 = ${k1BuildInfo.build}, Kit 2 = ${k2BuildInfo.build})`);
+      headerLines.push(`# Assembly: ${resolvedTargetBuild} (Source Kits: Kit 1 = ${k1EffectiveBuild}, Kit 2 = ${k2EffectiveBuild})`);
+      if (liftoverStats.length > 0) {
+        for (const stat of liftoverStats) {
+          const kitLabel = liftoverStats.length > 1 ? `${stat.kit === 'kit1' ? 'Kit 1' : 'Kit 2'}: ` : '';
+          headerLines.push(
+            `# Liftover: ${kitLabel}${stat.remappedCount.toLocaleString()} loci remapped ${stat.fromBuild} → ${stat.toBuild} (${stat.droppedCount.toLocaleString()} unmappable, dropped)`
+          );
+        }
+      }
       headerLines.push(`# Consensus Engine: Weighted Bayesian Consensus (${platform1.name} [wt ${platform1.baseWeight}] + ${platform2.name} [wt ${platform2.baseWeight}])`);
       headerLines.push(`# Inferred Biological Sex: ${sexResult.inferredSex} (Chr X Het Rate: ${sexResult.xHetRate}%)`);
       headerLines.push(`# Quality Sanitations: ${hemizygousSanitizedCount.toLocaleString()} hemizygous loci sanitized | ${indelsHarmonizedCount.toLocaleString()} InDels harmonized`);
@@ -744,9 +838,10 @@ ctx.onmessage = (event: MessageEvent) => {
       concordanceRate,
       heterozygosityRate,
       donorMatchStatus,
-      kit1Build: k1BuildInfo.build,
-      kit2Build: k2BuildInfo.build,
+      kit1Build: k1EffectiveBuild,
+      kit2Build: k2EffectiveBuild,
       targetBuild: resolvedTargetBuild,
+      liftoverStats,
       inferredSex: sexResult.inferredSex,
       xHeterozygosityRate: sexResult.xHetRate,
       hemizygousSanitizedCount,
@@ -758,29 +853,25 @@ ctx.onmessage = (event: MessageEvent) => {
     };
 
     postProgress('completed', 5, 100, 'SuperKit processing finished successfully!');
-    ctx.postMessage(successMessage);
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    const errPayload: WorkerErrorMessage = {
-      type: 'ERROR',
-      error: errorMsg,
-    };
-    ctx.postMessage(errPayload);
-  }
-};
+    return successMessage;
+}
 
-function postProgress(
-  stage: WorkerProgressMessage['stage'],
-  stageNumber: number,
-  percentage: number,
-  detailMessage: string
-) {
-  const msg: WorkerProgressMessage = {
-    type: 'PROGRESS',
-    stage,
-    stageNumber,
-    percentage,
-    detailMessage,
+// Attach worker onmessage handler when running in a worker context
+if (ctx && typeof ctx.postMessage === 'function') {
+  ctx.onmessage = async (event: MessageEvent) => {
+    try {
+      const successMessage = await executeMerge({
+        ...event.data,
+        onProgress: (p) => ctx.postMessage(p),
+      });
+      ctx.postMessage(successMessage);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errPayload: WorkerErrorMessage = {
+        type: 'ERROR',
+        error: errorMsg,
+      };
+      ctx.postMessage(errPayload);
+    }
   };
-  ctx.postMessage(msg);
 }
